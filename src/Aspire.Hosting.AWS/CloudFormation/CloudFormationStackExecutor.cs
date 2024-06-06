@@ -37,11 +37,12 @@ internal sealed class CloudFormationStackExecutor(
         var changeSetType = await DetermineChangeSetTypeAsync(existingStack, cancellationToken).ConfigureAwait(false);
 
         var templateBody = File.ReadAllText(cloudFormationResource.TemplatePath);
-        var computedSha256 = ComputeSHA256(templateBody, cloudFormationResource.CloudFormationParameters);
+        var computedSha256 = ComputeSHA256(templateBody, cloudFormationResource.CloudFormationParameters,
+            cloudFormationResource.CloudFormationTags);
 
         (var tags, var existingSha256) = SetupTags(existingStack, changeSetType, computedSha256);
 
-        // Check to see if the template hasn't change. If it hasn't short circuit out.
+        // Check to see if the template hasn't changed. If it hasn't short circuit out.
         if (!cloudFormationResource.DisableDiffCheck && string.Equals(computedSha256, existingSha256))
         {
             logger.LogInformation("CloudFormation Template for CloudFormation stack {StackName} has not changed", cloudFormationResource.Name);
@@ -244,7 +245,7 @@ internal sealed class CloudFormationStackExecutor(
 
             changeSetType = ChangeSetType.CREATE;
         }
-        // If the status was DELETE_IN_PROGRESS then just wait for delete to complete 
+        // If the status was DELETE_IN_PROGRESS then just wait for delete to complete
         else if (stack.StackStatus == StackStatus.DELETE_IN_PROGRESS)
         {
             await WaitForNoLongerInProgress(cancellationToken).ConfigureAwait(false);
@@ -479,12 +480,18 @@ internal sealed class CloudFormationStackExecutor(
         return events;
     }
 
-    private static string ComputeSHA256(string templateBody, IDictionary<string, string> parameters)
+    private static string ComputeSHA256(string templateBody, IDictionary<string, string> parameters,
+        IDictionary<string, string>? tags = null)
     {
         var content = templateBody;
         if (parameters != null)
         {
             content += string.Join(";", parameters.Select(x => x.Key + "=" + x.Value).ToArray());
+        }
+
+        if (tags != null)
+        {
+            content += string.Join(";", tags.Select(x => x.Key + "=" + x.Value).ToArray());
         }
 
         var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(content));
@@ -493,7 +500,8 @@ internal sealed class CloudFormationStackExecutor(
 
     private async Task<Stack?> FindstackAsync()
     {
-        await foreach (var stack in cloudFormationClient.Paginators.DescribeStacks(new DescribeStacksRequest()).Stacks.ConfigureAwait(false))
+        await foreach (var stack in cloudFormationClient.Paginators
+                           .DescribeStacks(new DescribeStacksRequest()).Stacks.ConfigureAwait(false))
         {
             if (string.Equals(cloudFormationResource.Name, stack.StackName, StringComparison.Ordinal))
             {

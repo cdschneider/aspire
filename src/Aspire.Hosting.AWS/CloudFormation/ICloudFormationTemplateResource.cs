@@ -21,6 +21,8 @@ public interface ICloudFormationTemplateResource : ICloudFormationResource
     /// <returns></returns>
     ICloudFormationTemplateResource AddParameter(string parameterName, string parameterValue);
 
+    ICloudFormationTemplateResource AddTag(string tagName, string tagValue);
+
     /// <summary>
     /// The optional IAM role assumed by CloudFormation when creating or updating the Stack.
     /// </summary>

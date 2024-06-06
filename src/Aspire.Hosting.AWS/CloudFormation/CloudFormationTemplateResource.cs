@@ -11,6 +11,8 @@ internal sealed class CloudFormationTemplateResource(string name, string templat
 {
     public IDictionary<string, string> CloudFormationParameters { get; } = new Dictionary<string, string>();
 
+    public IDictionary<string, string> CloudFormationTags { get; } = new Dictionary<string, string>();
+
     /// <inheritdoc/>
     public string TemplatePath { get; } = templatePath;
 
@@ -30,6 +32,12 @@ internal sealed class CloudFormationTemplateResource(string name, string templat
     public ICloudFormationTemplateResource AddParameter(string parameterName, string parameterValue)
     {
         CloudFormationParameters[parameterName] = parameterValue;
+        return this;
+    }
+
+    public ICloudFormationTemplateResource AddTag(string tagName, string tagValue)
+    {
+        CloudFormationTags[tagName] = tagValue;
         return this;
     }
 

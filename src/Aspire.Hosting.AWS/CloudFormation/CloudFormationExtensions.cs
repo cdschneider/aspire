@@ -45,12 +45,21 @@ public static class CloudFormationExtensions
         return builder;
     }
 
-    /// <summary>
-    /// Add a CloudFormation stack for provisioning application resources.
-    /// </summary>
-    /// <param name="builder"></param>
-    /// <param name="stackName">The name of the CloudFormation stack.</param>
-    /// <returns></returns>
+    public static IResourceBuilder<ICloudFormationTemplateResource> WithTag(
+        this IResourceBuilder<ICloudFormationTemplateResource> builder, string tagName, string tagValue)
+    {
+        builder.Resource.AddTag(tagName, tagValue);
+        return builder;
+    }
+
+    public static IResourceBuilder<ICloudFormationTemplateResource> WithTags(
+        this IResourceBuilder<ICloudFormationTemplateResource> builder, List<KeyValuePair<string, string>> tags)
+    {
+        tags.ForEach(t =>
+            builder.Resource.AddTag(t.Key, t.Value));
+        return builder;
+    }
+
     public static IResourceBuilder<ICloudFormationStackResource> AddAWSCloudFormationStack(this IDistributedApplicationBuilder builder, string stackName)
     {
         var resource = new CloudFormationStackResource(stackName);
