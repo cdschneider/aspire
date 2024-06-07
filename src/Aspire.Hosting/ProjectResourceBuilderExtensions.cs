@@ -3,6 +3,7 @@
 
 using Aspire.Hosting.ApplicationModel;
 using Aspire.Hosting.Dashboard;
+using Aspire.Hosting.Publishing;
 using Aspire.Hosting.Utils;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Configuration;
@@ -397,7 +398,29 @@ public static class ProjectResourceBuilderExtensions
     public static IResourceBuilder<T> PublishAsDockerFile<T>(this IResourceBuilder<T> builder,
         IEnumerable<DockerBuildArg>? buildArgs = null) where T : ProjectResource
     {
-        return builder; //TODO
+        return builder.WithManifestPublishingCallback(context => WriteProjectAsDockerfileResourceAsync(context, builder.Resource, buildArgs));
+    }
+
+    private static async Task WriteProjectAsDockerfileResourceAsync(ManifestPublishingContext context, ProjectResource project, IEnumerable<DockerBuildArg>? buildArgs = null)
+    {
+        var metadata = project.GetProjectMetadata();
+
+        context.Writer.WriteString("type", "dockerfile.v0");
+
+        var appHostRelativePathToDockerfile = Path.Combine(metadata.ProjectPath, "Dockerfile");
+        var manifestFileRelativePathToDockerfile = context.GetManifestRelativePath(appHostRelativePathToDockerfile);
+        context.Writer.WriteString("path", manifestFileRelativePathToDockerfile);
+
+        var manifestFileRelativePathToContextDirectory = context.GetManifestRelativePath(metadata.ProjectPath);
+        context.Writer.WriteString("context", manifestFileRelativePathToContextDirectory);
+
+        if (buildArgs is not null)
+        {
+            context.WriteDockerBuildArgs(buildArgs);
+        }
+
+        await context.WriteEnvironmentVariablesAsync(project).ConfigureAwait(false);
+        context.WriteBindings(project);
     }
 
     /// <summary>
