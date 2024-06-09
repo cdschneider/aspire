@@ -3,7 +3,9 @@
 
 using Aspire.Hosting.ApplicationModel;
 using Aspire.Hosting.Dashboard;
+using Aspire.Hosting.Publishing;
 using Aspire.Hosting.Utils;
+using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Hosting;
 
@@ -14,7 +16,7 @@ namespace Aspire.Hosting;
 /// </summary>
 public static class ProjectResourceBuilderExtensions
 {
-    private const string AspNetCoreForwaredHeadersEnabledVariableName = "ASPNETCORE_FORWARDEDHEADERS_ENABLED";
+    private const string AspNetCoreForwardedHeadersEnabledVariableName = "ASPNETCORE_FORWARDEDHEADERS_ENABLED";
 
     /// <summary>
     /// Adds a .NET project to the application model.
@@ -43,11 +45,11 @@ public static class ProjectResourceBuilderExtensions
     /// </remarks>
     /// <example>
     /// Example of adding a project to the application model.
-    /// <code lang="C#">
+    /// <code lang="csharp">
     /// var builder = DistributedApplication.CreateBuilder(args);
-    /// 
+    ///
     /// builder.AddProject&lt;Projects.InventoryService&gt;("inventoryservice");
-    /// 
+    ///
     /// builder.Build().Run();
     /// </code>
     /// </example>
@@ -60,7 +62,7 @@ public static class ProjectResourceBuilderExtensions
     }
 
     /// <summary>
-    /// Adds a .NET project to the application model. 
+    /// Adds a .NET project to the application model.
     /// </summary>
     /// <param name="builder">The <see cref="IDistributedApplicationBuilder"/>.</param>
     /// <param name="name">The name of the resource. This name will be used for service discovery when referenced in a dependency.</param>
@@ -75,11 +77,11 @@ public static class ProjectResourceBuilderExtensions
     /// </remarks>
     /// <example>
     /// Add a project to the app model via a project path.
-    /// <code lang="C#">
+    /// <code lang="csharp">
     /// var builder = DistributedApplication.CreateBuilder(args);
-    /// 
+    ///
     /// builder.AddProject("inventoryservice", @"..\InventoryService\InventoryService.csproj");
-    /// 
+    ///
     /// builder.Build().Run();
     /// </code>
     /// </example>
@@ -123,11 +125,11 @@ public static class ProjectResourceBuilderExtensions
     /// </remarks>
     /// <example>
     /// Example of adding a project to the application model.
-    /// <code lang="C#">
+    /// <code lang="csharp">
     /// var builder = DistributedApplication.CreateBuilder(args);
-    /// 
+    ///
     /// builder.AddProject&lt;Projects.InventoryService&gt;("inventoryservice", launchProfileName: "otherLaunchProfile");
-    /// 
+    ///
     /// builder.Build().Run();
     /// </code>
     /// </example>
@@ -156,11 +158,11 @@ public static class ProjectResourceBuilderExtensions
     /// </remarks>
     /// <example>
     /// Add a project to the app model via a project path.
-    /// <code lang="C#">
+    /// <code lang="csharp">
     /// var builder = DistributedApplication.CreateBuilder(args);
-    /// 
+    ///
     /// builder.AddProject("inventoryservice", @"..\InventoryService\InventoryService.csproj", launchProfileName: "otherLaunchProfile");
-    /// 
+    ///
     /// builder.Build().Run();
     /// </code>
     /// </example>
@@ -196,7 +198,6 @@ public static class ProjectResourceBuilderExtensions
 
         builder.WithOtlpExporter();
         builder.ConfigureConsoleLogs();
-        builder.SetAspNetCoreUrls();
 
         var projectResource = builder.Resource;
 
@@ -207,7 +208,7 @@ public static class ProjectResourceBuilderExtensions
                 // If we have any endpoints & the forwarded headers wasn't disabled then add it
                 if (projectResource.GetEndpoints().Any() && !projectResource.Annotations.OfType<DisableForwardedHeadersAnnotation>().Any())
                 {
-                    context.EnvironmentVariables[AspNetCoreForwaredHeadersEnabledVariableName] = "true";
+                    context.EnvironmentVariables[AspNetCoreForwardedHeadersEnabledVariableName] = "true";
                 }
             });
         }
@@ -215,41 +216,103 @@ public static class ProjectResourceBuilderExtensions
         if (excludeLaunchProfile)
         {
             builder.WithAnnotation(new ExcludeLaunchProfileAnnotation());
-            return builder;
         }
-
-        if (!string.IsNullOrEmpty(launchProfileName))
+        else if (!string.IsNullOrEmpty(launchProfileName))
         {
             builder.WithAnnotation(new LaunchProfileAnnotation(launchProfileName));
         }
+        else
+        {
+            var appHostDefaultLaunchProfileName = builder.ApplicationBuilder.Configuration["AppHost:DefaultLaunchProfileName"]
+                ?? Environment.GetEnvironmentVariable("DOTNET_LAUNCH_PROFILE");
+            if (!string.IsNullOrEmpty(appHostDefaultLaunchProfileName))
+            {
+                builder.WithAnnotation(new DefaultLaunchProfileAnnotation(appHostDefaultLaunchProfileName));
+            }
+        }
+
+        var effectiveLaunchProfile = excludeLaunchProfile ? null : projectResource.GetEffectiveLaunchProfile(throwIfNotFound: true);
+        var launchProfile = effectiveLaunchProfile?.LaunchProfile;
+
+        // Process the launch profile and turn it into environment variables and endpoints.
+        var config = GetConfiguration(projectResource);
+        var kestrelEndpoints = config.GetSection("Kestrel:Endpoints").GetChildren();
+
+        // Get all the Kestrel configuration endpoint bindings, grouped by scheme
+        var kestrelEndpointsByScheme = kestrelEndpoints
+            .Where(endpoint => endpoint["Url"] is string)
+            .Select(endpoint => new
+            {
+                EndpointName = endpoint.Key,
+                BindingAddress = BindingAddress.Parse(endpoint["Url"]!)
+            })
+            .GroupBy(entry => entry.BindingAddress.Scheme);
+
+        // Helper to change the transport to http2 if needed
+        var isHttp2ConfiguredInAppSettings = config["Kestrel:EndpointDefaults:Protocols"] == "Http2";
+        var adjustTransport = (EndpointAnnotation e) => e.Transport = isHttp2ConfiguredInAppSettings ? "http2" : e.Transport;
 
         if (builder.ApplicationBuilder.ExecutionContext.IsRunMode)
         {
+            foreach (var schemeGroup in kestrelEndpointsByScheme)
+            {
+                // If there is only one endpoint for a given scheme, we use the scheme as the endpoint name
+                // Otherwise, we use the actual endpoint names from the config
+                var schemeAsEndpointName = schemeGroup.Count() <= 1 ? schemeGroup.Key : null;
+
+                foreach (var endpoint in schemeGroup)
+                {
+                    builder.WithEndpoint(schemeAsEndpointName ?? endpoint.EndpointName, e =>
+                    {
+                        e.Port = endpoint.BindingAddress.Port;
+                        e.UriScheme = endpoint.BindingAddress.Scheme;
+                        e.IsProxied = false; // turn off the proxy, as we cannot easily override Kestrel bindings
+                        e.Transport = adjustTransport(e);
+                    },
+                    createIfNotExists: true);
+                }
+            }
+
+            // We don't need to set ASPNETCORE_URLS if we have Kestrel endpoints configured
+            // as Kestrel will get everything it needs from the config.
+            if (!kestrelEndpointsByScheme.Any())
+            {
+                builder.SetAspNetCoreUrls();
+            }
+
             // Process the launch profile and turn it into environment variables and endpoints.
-            var launchProfile = projectResource.GetEffectiveLaunchProfile(throwIfNotFound: true);
             if (launchProfile is null)
             {
                 return builder;
             }
 
-            var urlsFromApplicationUrl = launchProfile.ApplicationUrl?.Split(';', StringSplitOptions.RemoveEmptyEntries) ?? [];
-            foreach (var url in urlsFromApplicationUrl)
+            // If we had found any Kestrel endpoints, we ignore the launch profile endpoints,
+            // to match the Kestrel runtime behavior.
+            if (!kestrelEndpointsByScheme.Any())
             {
-                var uri = new Uri(url);
-
-                builder.WithEndpoint(uri.Scheme, e =>
+                var urlsFromApplicationUrl = launchProfile.ApplicationUrl?.Split(';', StringSplitOptions.RemoveEmptyEntries) ?? [];
+                foreach (var url in urlsFromApplicationUrl)
                 {
-                    e.Port = uri.Port;
-                    e.UriScheme = uri.Scheme;
-                    e.FromLaunchProfile = true;
-                },
-                createIfNotExists: true);
+                    var uri = new Uri(url);
+
+                    builder.WithEndpoint(uri.Scheme, e =>
+                    {
+                        e.Port = uri.Port;
+                        e.UriScheme = uri.Scheme;
+                        e.FromLaunchProfile = true;
+                        e.Transport = adjustTransport(e);
+                    },
+                    createIfNotExists: true);
+                }
             }
 
             builder.WithEnvironment(context =>
             {
                 // Populate DOTNET_LAUNCH_PROFILE environment variable for consistency with "dotnet run" and "dotnet watch".
-                context.EnvironmentVariables.TryAdd("DOTNET_LAUNCH_PROFILE", launchProfileName!);
+                if (effectiveLaunchProfile is not null)
+                {
+                    context.EnvironmentVariables.TryAdd("DOTNET_LAUNCH_PROFILE", effectiveLaunchProfile.Name);
+                }
 
                 foreach (var envVar in launchProfile.EnvironmentVariables)
                 {
@@ -262,20 +325,18 @@ public static class ProjectResourceBuilderExtensions
         }
         else
         {
-            // If we aren't a web project we don't automatically add bindings.
-            if (!IsWebProject(projectResource))
+            // If we aren't a web project (looking at both launch profile and Kestrel config) we don't automatically add bindings.
+            if (launchProfile?.ApplicationUrl == null && !kestrelEndpointsByScheme.Any())
             {
                 return builder;
             }
-
-            var isHttp2ConfiguredInAppSettings = IsKestrelHttp2ConfigurationPresent(projectResource);
 
             if (!projectResource.Annotations.OfType<EndpointAnnotation>().Any(sb => sb.UriScheme == "http" || string.Equals(sb.Name, "http", StringComparisons.EndpointAnnotationName)))
             {
                 builder.WithEndpoint("http", e =>
                 {
                     e.UriScheme = "http";
-                    e.Transport = isHttp2ConfiguredInAppSettings ? "http2" : e.Transport;
+                    e.Transport = adjustTransport(e);
                 },
                 createIfNotExists: true);
             }
@@ -285,7 +346,7 @@ public static class ProjectResourceBuilderExtensions
                 builder.WithEndpoint("https", e =>
                 {
                     e.UriScheme = "https";
-                    e.Transport = isHttp2ConfiguredInAppSettings ? "http2" : e.Transport;
+                    e.Transport = adjustTransport(e);
                 },
                 createIfNotExists: true);
             }
@@ -314,7 +375,7 @@ public static class ProjectResourceBuilderExtensions
     /// </remarks>
     /// <example>
     /// Start multiple instances of the same service.
-    /// <code lang="C#">
+    /// <code lang="csharp">
     /// var builder = DistributedApplication.CreateBuilder(args);
     ///
     /// builder.AddProject&lt;Projects.InventoryService&gt;("inventoryservice")
@@ -325,6 +386,41 @@ public static class ProjectResourceBuilderExtensions
     {
         builder.WithAnnotation(new ReplicaAnnotation(replicas));
         return builder;
+    }
+
+    /// <summary>
+    ///
+    /// </summary>
+    /// <param name="builder"></param>
+    /// <param name="buildArgs"></param>
+    /// <typeparam name="T"></typeparam>
+    /// <returns></returns>
+    public static IResourceBuilder<T> PublishAsDockerFile<T>(this IResourceBuilder<T> builder,
+        IEnumerable<DockerBuildArg>? buildArgs = null) where T : ProjectResource
+    {
+        return builder.WithManifestPublishingCallback(context => WriteProjectAsDockerfileResourceAsync(context, builder.Resource, buildArgs));
+    }
+
+    private static async Task WriteProjectAsDockerfileResourceAsync(ManifestPublishingContext context, ProjectResource project, IEnumerable<DockerBuildArg>? buildArgs = null)
+    {
+        var metadata = project.GetProjectMetadata();
+
+        context.Writer.WriteString("type", "dockerfile.v0");
+
+        var appHostRelativePathToDockerfile = Path.Combine(metadata.ProjectPath, "Dockerfile");
+        var manifestFileRelativePathToDockerfile = context.GetManifestRelativePath(appHostRelativePathToDockerfile);
+        context.Writer.WriteString("path", manifestFileRelativePathToDockerfile);
+
+        var manifestFileRelativePathToContextDirectory = context.GetManifestRelativePath(metadata.ProjectPath);
+        context.Writer.WriteString("context", manifestFileRelativePathToContextDirectory);
+
+        if (buildArgs is not null)
+        {
+            context.WriteDockerBuildArgs(buildArgs);
+        }
+
+        await context.WriteEnvironmentVariablesAsync(project).ConfigureAwait(false);
+        context.WriteBindings(project);
     }
 
     /// <summary>
@@ -346,7 +442,7 @@ public static class ProjectResourceBuilderExtensions
     /// </remarks>
     /// <example>
     /// Disable forwarded headers for a project.
-    /// <code lang="C#">
+    /// <code lang="csharp">
     /// var builder = DistributedApplication.CreateBuilder(args);
     ///
     /// builder.AddProject&lt;Projects.InventoryService&gt;("inventoryservice")
@@ -359,9 +455,15 @@ public static class ProjectResourceBuilderExtensions
         return builder;
     }
 
-    private static bool IsKestrelHttp2ConfigurationPresent(ProjectResource projectResource)
+    private static IConfiguration GetConfiguration(ProjectResource projectResource)
     {
         var projectMetadata = projectResource.GetProjectMetadata();
+
+        // For testing
+        if (projectMetadata.Configuration is { } configuration)
+        {
+            return configuration;
+        }
 
         var projectDirectoryPath = Path.GetDirectoryName(projectMetadata.ProjectPath)!;
         var appSettingsPath = Path.Combine(projectDirectoryPath, "appsettings.json");
@@ -371,15 +473,7 @@ public static class ProjectResourceBuilderExtensions
         var configBuilder = new ConfigurationBuilder();
         configBuilder.AddJsonFile(appSettingsPath, optional: true);
         configBuilder.AddJsonFile(appSettingsEnvironmentPath, optional: true);
-        var config = configBuilder.Build();
-        var protocol = config["Kestrel:EndpointDefaults:Protocols"];
-        return protocol == "Http2";
-    }
-
-    private static bool IsWebProject(ProjectResource projectResource)
-    {
-        var launchProfile = projectResource.GetEffectiveLaunchProfile(throwIfNotFound: true);
-        return launchProfile?.ApplicationUrl != null;
+        return configBuilder.Build();
     }
 
     private static void SetAspNetCoreUrls(this IResourceBuilder<ProjectResource> builder)
