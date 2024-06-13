@@ -21,6 +21,12 @@ public interface ICloudFormationTemplateResource : ICloudFormationResource
     /// <returns></returns>
     ICloudFormationTemplateResource AddParameter(string parameterName, string parameterValue);
 
+    /// <summary>
+    ///
+    /// </summary>
+    /// <param name="tagName"></param>
+    /// <param name="tagValue"></param>
+    /// <returns></returns>
     ICloudFormationTemplateResource AddTag(string tagName, string tagValue);
 
     /// <summary>

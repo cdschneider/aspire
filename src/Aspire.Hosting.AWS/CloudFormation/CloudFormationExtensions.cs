@@ -45,6 +45,13 @@ public static class CloudFormationExtensions
         return builder;
     }
 
+    /// <summary>
+    ///
+    /// </summary>
+    /// <param name="builder"></param>
+    /// <param name="tagName"></param>
+    /// <param name="tagValue"></param>
+    /// <returns></returns>
     public static IResourceBuilder<ICloudFormationTemplateResource> WithTag(
         this IResourceBuilder<ICloudFormationTemplateResource> builder, string tagName, string tagValue)
     {
@@ -52,6 +59,12 @@ public static class CloudFormationExtensions
         return builder;
     }
 
+    /// <summary>
+    ///
+    /// </summary>
+    /// <param name="builder"></param>
+    /// <param name="tags"></param>
+    /// <returns></returns>
     public static IResourceBuilder<ICloudFormationTemplateResource> WithTags(
         this IResourceBuilder<ICloudFormationTemplateResource> builder, List<KeyValuePair<string, string>> tags)
     {
@@ -60,6 +73,12 @@ public static class CloudFormationExtensions
         return builder;
     }
 
+    /// <summary>
+    ///
+    /// </summary>
+    /// <param name="builder"></param>
+    /// <param name="stackName"></param>
+    /// <returns></returns>
     public static IResourceBuilder<ICloudFormationStackResource> AddAWSCloudFormationStack(this IDistributedApplicationBuilder builder, string stackName)
     {
         var resource = new CloudFormationStackResource(stackName);
