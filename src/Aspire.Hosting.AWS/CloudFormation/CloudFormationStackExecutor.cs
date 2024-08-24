@@ -82,13 +82,13 @@ internal sealed class CloudFormationStackExecutor(
 
         if (changeSetType == ChangeSetType.UPDATE && existingStack != null)
         {
-            existingSha256 = existingStack.Tags?.FirstOrDefault(x => string.Equals(x.Key, SHA256_TAG))?.Value;
             tags = tags.Count != 0 ? tags : existingStack.Tags ?? [];
         }
 
         var shaTag = tags.FirstOrDefault(x => string.Equals(x.Key, SHA256_TAG));
         if (shaTag != null)
         {
+            existingSha256 = shaTag.Value;
             shaTag.Value = computedSha256;
         }
         else
