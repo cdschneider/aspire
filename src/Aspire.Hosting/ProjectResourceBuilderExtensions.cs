@@ -3,7 +3,6 @@
 
 using Aspire.Hosting.ApplicationModel;
 using Aspire.Hosting.Dashboard;
-using Aspire.Hosting.Publishing;
 using Aspire.Hosting.Utils;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Configuration;
@@ -47,9 +46,9 @@ public static class ProjectResourceBuilderExtensions
     /// Example of adding a project to the application model.
     /// <code lang="csharp">
     /// var builder = DistributedApplication.CreateBuilder(args);
-    ///
+    /// 
     /// builder.AddProject&lt;Projects.InventoryService&gt;("inventoryservice");
-    ///
+    /// 
     /// builder.Build().Run();
     /// </code>
     /// </example>
@@ -62,7 +61,7 @@ public static class ProjectResourceBuilderExtensions
     }
 
     /// <summary>
-    /// Adds a .NET project to the application model.
+    /// Adds a .NET project to the application model. 
     /// </summary>
     /// <param name="builder">The <see cref="IDistributedApplicationBuilder"/>.</param>
     /// <param name="name">The name of the resource. This name will be used for service discovery when referenced in a dependency.</param>
@@ -79,9 +78,9 @@ public static class ProjectResourceBuilderExtensions
     /// Add a project to the app model via a project path.
     /// <code lang="csharp">
     /// var builder = DistributedApplication.CreateBuilder(args);
-    ///
+    /// 
     /// builder.AddProject("inventoryservice", @"..\InventoryService\InventoryService.csproj");
-    ///
+    /// 
     /// builder.Build().Run();
     /// </code>
     /// </example>
@@ -127,9 +126,9 @@ public static class ProjectResourceBuilderExtensions
     /// Example of adding a project to the application model.
     /// <code lang="csharp">
     /// var builder = DistributedApplication.CreateBuilder(args);
-    ///
+    /// 
     /// builder.AddProject&lt;Projects.InventoryService&gt;("inventoryservice", launchProfileName: "otherLaunchProfile");
-    ///
+    /// 
     /// builder.Build().Run();
     /// </code>
     /// </example>
@@ -160,9 +159,9 @@ public static class ProjectResourceBuilderExtensions
     /// Add a project to the app model via a project path.
     /// <code lang="csharp">
     /// var builder = DistributedApplication.CreateBuilder(args);
-    ///
+    /// 
     /// builder.AddProject("inventoryservice", @"..\InventoryService\InventoryService.csproj", launchProfileName: "otherLaunchProfile");
-    ///
+    /// 
     /// builder.Build().Run();
     /// </code>
     /// </example>
@@ -386,41 +385,6 @@ public static class ProjectResourceBuilderExtensions
     {
         builder.WithAnnotation(new ReplicaAnnotation(replicas));
         return builder;
-    }
-
-    /// <summary>
-    ///
-    /// </summary>
-    /// <param name="builder"></param>
-    /// <param name="buildArgs"></param>
-    /// <typeparam name="T"></typeparam>
-    /// <returns></returns>
-    public static IResourceBuilder<T> PublishAsDockerFile<T>(this IResourceBuilder<T> builder,
-        IEnumerable<DockerBuildArg>? buildArgs = null) where T : ProjectResource
-    {
-        return builder.WithManifestPublishingCallback(context => WriteProjectAsDockerfileResourceAsync(context, builder.Resource, buildArgs));
-    }
-
-    private static async Task WriteProjectAsDockerfileResourceAsync(ManifestPublishingContext context, ProjectResource project, IEnumerable<DockerBuildArg>? buildArgs = null)
-    {
-        var metadata = project.GetProjectMetadata();
-
-        context.Writer.WriteString("type", "dockerfile.v0");
-
-        var appHostRelativePathToDockerfile = Path.Combine(metadata.ProjectPath, "Dockerfile");
-        var manifestFileRelativePathToDockerfile = context.GetManifestRelativePath(appHostRelativePathToDockerfile);
-        context.Writer.WriteString("path", manifestFileRelativePathToDockerfile);
-
-        var manifestFileRelativePathToContextDirectory = context.GetManifestRelativePath(metadata.ProjectPath);
-        context.Writer.WriteString("context", manifestFileRelativePathToContextDirectory);
-
-        if (buildArgs is not null)
-        {
-            context.WriteDockerBuildArgs(buildArgs);
-        }
-
-        await context.WriteEnvironmentVariablesAsync(project).ConfigureAwait(false);
-        context.WriteBindings(project);
     }
 
     /// <summary>
