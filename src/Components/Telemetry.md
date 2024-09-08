@@ -38,6 +38,16 @@ Aspire.Azure.Messaging.EventHubs:
 - Metric names:
   - none (currently not supported by the Azure SDK)
 
+Aspire.Azure.Messaging.WebPubSub:
+- Log categories:
+  - "Azure.Core"
+  - "Azure.Identity"
+  - "Azure.Messaging.WebPubSub"
+- Activity source names:
+  - "Azure.Messaging.WebPubSub.*"
+- Metric names:
+  - none (currently not supported by the Azure SDK)
+
 Aspire.Azure.Search.Documents:
 - Log categories:
   - "Azure.Core"
@@ -93,6 +103,14 @@ Aspire.Confluent.Kafka:
     - "messaging.kafka.message.transmitted"
     - "messaging.kafka.message.rx"
     - "messaging.kafka.message.received"
+
+Aspire.Elastic.Clients.Elasticsearch:
+- Log categories:
+  - none (not currently supported by Elastic.Clients.Elasticsearch library)
+- Activity source names:
+  - "Elastic.Transport"
+- Metric names:
+  - none
 
 Aspire.Microsoft.Azure.Cosmos:
 - Log categories:
@@ -252,7 +270,7 @@ Aspire.Oracle.EntityFrameworkCore:
   - "Microsoft.EntityFrameworkCore.Query"
   - "Microsoft.EntityFrameworkCore.Update"
 - Activity source names:
-  - none (currently not supported by Oracle.EntityFrameworkCore library)
+  - "Oracle.ManagedDataAccess.Core"
 - Metric names:
   - none
 
